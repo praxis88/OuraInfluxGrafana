@@ -1,0 +1,67 @@
+services:
+  ourainjector:
+    restart: unless-stopped
+    container_name: ourainjector
+    image: ourainjector:latest
+    networks:
+      - proxy_net
+    depends_on:
+      influxdb2:
+        condition: service_healthy
+    env_file:
+      - .env
+
+  influxdb2:
+    restart: unless-stopped
+    container_name: influxdb2
+    image: influxdb:2.7.3-alpine
+    networks:
+      - proxy_net
+    volumes:
+      - influxdb_data:/var/lib/influxdb2
+      - influxdb_conf:/etc/influxdb2
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:8086/health | grep -q '\"status\":\"pass\"'"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    env_file:
+      - .env
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.influxdb2.rule=Host(`influxdb.cahall.duckdns.org`)"
+      - "traefik.http.routers.influxdb2.entrypoints=websecure"
+      - "traefik.http.routers.influxdb2.tls.certresolver=duckdns"
+      - "traefik.http.services.influxdb2.loadbalancer.server.port=8086"
+
+  grafana:
+    container_name: grafana
+    image: grafana/grafana:latest
+    networks:
+      - proxy_net
+    volumes:
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      influxdb2:
+        condition: service_healthy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.grafana.rule=Host(`grafana.cahall.duckdns.org`)"
+      - "traefik.http.routers.grafana.entrypoints=websecure"
+      - "traefik.http.routers.grafana.tls.certresolver=duckdns"
+      - "traefik.http.services.grafana.loadbalancer.server.port=3000"
+
+
+volumes: 
+  influxdb_data:
+    external: true
+  grafana_data:
+    external: true
+  influxdb_conf:
+    external: true
+ 
+
+networks:
+  proxy_net:
+    external: true

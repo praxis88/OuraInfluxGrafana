@@ -1,0 +1,6 @@
+[Unit]
+Description=Trigger the daily post from oura to influxdb
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/ourapost.sh

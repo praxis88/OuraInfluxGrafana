@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 from datetime import datetime, timedelta, date
 from influxdb_client import WritePrecision, InfluxDBClient, Point
 from influxdb_client.client.write_api import SYNCHRONOUS
@@ -14,6 +15,7 @@ INFLUXDB_ORG = os.getenv('INFLUXDB_ORG')
 INFLUXDB_BUCKET = os.getenv('INFLUXDB_BUCKET')
 INFLUXDB_CONTAINERNAME = os.getenv('INFLUXDB_CONTAINERNAME')
 OURA_CLOUD_PAT = os.getenv('OURA_CLOUD_PAT')
+DEBUG = os.getenv('DEBUG', 'false').lower() in ('true', '1', 'yes')
 
 url = f"http://{INFLUXDB_CONTAINERNAME}:8086"
 client_ouradb = influxdb_client.InfluxDBClient(url=url, token=INFLUXDB_TOKEN, org=INFLUXDB_ORG)

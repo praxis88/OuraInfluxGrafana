@@ -10,13 +10,13 @@ INFLUX_BUCKET="${INFLUXDB_BUCKET}"
 usage() {
   echo "Usage: $0 -s <start> -e <end> [-p <predicate>]"
   echo ""
-  echo "  -s  Start datetime (RFC3339, e.g. 2024-01-01T00:00:00Z)"
-  echo "  -e  End datetime   (RFC3339, e.g. 2024-06-01T00:00:00Z)"
+  echo "  -s  Start datetime (RFC3339, e.g. 2026-05-01T00:00:00Z)"
+  echo "  -e  End datetime   (RFC3339, e.g. 2026-05-01T23:00:00Z)"
   echo "  -p  Predicate      (optional, e.g. '_measurement=\"cpu\"')"
   echo ""
   echo "Examples:"
-  echo "  $0 -s 2024-01-01T00:00:00Z -e 2024-06-01T00:00:00Z"
-  echo "  $0 -s 2024-01-01T00:00:00Z -e 2024-06-01T00:00:00Z -p '_measurement=\"cpu\"'"
+  echo "  $0 -s 2026-05-01T00:00:00Z -e 2026-05-01T23:00:00Z"
+  echo "  $0 -s 2026-05-01T00:00:00Z -e 2026-05-01T23:00:00Z -p '_measurement=\"cpu\"'"
   exit 1
 }
 

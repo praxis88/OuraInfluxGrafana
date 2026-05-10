@@ -1,11 +1,16 @@
 import requests
 from datetime import datetime, timedelta
 import json
+import os
+
+DEBUG = os.getenv('DEBUG', 'false').lower() in ('true', '1', 'yes')
 
 class PrintTimeStamp():
-   def write(self,x):
-       ts = str(datetime.now())
-       print("<{}> {}".format(str(ts),x))
+    def write(self, x, debug=False):
+        if debug and not DEBUG:
+            return
+        ts = str(datetime.now())
+        print("<{}> {}".format(str(ts), x))
 
 def data_exists_in_influx(end_date, query_api, INFLUXDB_BUCKET):
     """Check if data already exists for this date in InfluxDB"""
@@ -31,22 +36,45 @@ def data_exists_in_influx(end_date, query_api, INFLUXDB_BUCKET):
     try:
         result = query_api.query(query)
         for table in result:
-            pts.write(f"Table has {len(table.records)} records")
+            pts.write(f"Table has {len(table.records)} records", debug=True)
         has_data = any(len(table.records) > 0 for table in result)
         return has_data
     except Exception as e:
-        pts.write(f"Warning: Error checking InfluxDB for {end_date}: {e}")
+        pts.write(f"Warning: Error checking InfluxDB for {end_date}: {e}", debug=True)
         import traceback
         traceback.print_exc()
         return False
 
 
-def fetch_data(start_date,end_date,datatype,OURA_CLOUD_PAT):
+def fetch_data(start_date, end_date, datatype, OURA_CLOUD_PAT, retries=3, timeout=10):
     pts = PrintTimeStamp()
     url = f"https://api.ouraring.com/v2/usercollection/{datatype}"
     headers = {"Authorization": f"Bearer {OURA_CLOUD_PAT}"}
     params = {"start_date": f"{start_date}", 'end_date': f"{end_date}"}
-    response = requests.request('GET', url, headers=headers, params=params).json()
+
+    for attempt in range(1, retries + 1):
+        try:
+            response = requests.request(
+                'GET', url, headers=headers, params=params, timeout=timeout
+            ).json()
+            break
+
+        except requests.exceptions.Timeout:
+            pts.write(f"Timeout on attempt {attempt}/{retries} for {datatype} {start_date}")
+            if attempt < retries:
+                time.sleep(2 ** attempt)
+            else:
+                pts.write(f"All retries exhausted for {datatype} {start_date}, skipping")
+                return None
+
+        except requests.exceptions.RequestException as e:
+            pts.write(f"Request error on attempt {attempt}/{retries}: {e}")
+            if attempt < retries:
+                time.sleep(2 ** attempt)
+            else:
+                return None
+    else:
+        return None
 
     if not response["data"]:
         pts.write("No {} data yet for time window {}".format(datatype, start_date))
@@ -54,12 +82,10 @@ def fetch_data(start_date,end_date,datatype,OURA_CLOUD_PAT):
 
     resp = response["data"][0]
 
-    # For sleep data, aggregate all sleep periods (long_sleep + naps)
     if datatype == 'sleep':
-        # Fields to sum across all sleep periods
         sum_fields = [
             'total_sleep_duration',
-            'deep_sleep_duration', 
+            'deep_sleep_duration',
             'light_sleep_duration',
             'rem_sleep_duration',
             'awake_time',
@@ -67,44 +93,36 @@ def fetch_data(start_date,end_date,datatype,OURA_CLOUD_PAT):
             'restless_periods',
             'latency'
         ]
-        
-        # Find the long_sleep record to use as the base
+
         long_sleep_record = None
         for record in response["data"]:
             if record.get('type') == 'long_sleep':
                 long_sleep_record = record
                 break
-        
-        # If no long_sleep found, use the first record as base
+
         if long_sleep_record is None:
             long_sleep_record = response["data"][0]
-            pts.write(f"No long_sleep found for {start_date}, using first record as base")
-        
-        # Start with the long_sleep record as base
+            pts.write(f"No long_sleep found for {start_date}, using first record as base", debug=True)
+
         resp = long_sleep_record.copy()
-        
-        # If there are multiple sleep periods, aggregate the sum_fields
+
         if len(response["data"]) > 1:
-            pts.write(f"Found {len(response['data'])} sleep periods for {start_date}, aggregating...")
-            
-            # Reset sum fields to zero
+            pts.write(f"Found {len(response['data'])} sleep periods for {start_date}, aggregating...", debug=True)
+
             for field in sum_fields:
                 resp[field] = 0
-            
-            # Sum across all sleep periods
+
             for record in response["data"]:
                 for field in sum_fields:
                     if field in record and record[field] is not None:
                         resp[field] += record[field]
 
-    #Adds the contributors section at level 0 of our readiness json. Includes stats like hrv and sleep balance
     if datatype == 'daily_readiness':
         resp2 = response["data"][0]["contributors"]
         resp.pop('contributors', None)
         resp.update(resp2)
 
-    # All data should be consistent in influxdb, so turn ints to floats
-    resp = {k:float(v) if type(v) == int else v for k,v in resp.items()}
+    resp = {k: float(v) if type(v) == int else v for k, v in resp.items()}
     return resp
 
 def get_data_one_day(start_date, OURA_CLOUD_PAT):
@@ -117,15 +135,15 @@ def get_data_one_day(start_date, OURA_CLOUD_PAT):
 
     # Require at least one data source, but allow partial data
     if sleep_data is None and readiness_data is None and activity_data is None:
-        pts.write("No data at all for {}, skipping".format(start_date))
+        pts.write("No data at all for {}, skipping".format(start_date), debug=True)
         return None
 
     if sleep_data is None:
-        pts.write("No sleep data for {}, continuing with partial data".format(start_date))
+        pts.write("No sleep data for {}, continuing with partial data".format(start_date), debug=True)
     if readiness_data is None:
-        pts.write("No readiness data for {}, continuing with partial data".format(start_date))
+        pts.write("No readiness data for {}, continuing with partial data".format(start_date), debug=True)
     if activity_data is None:
-        pts.write("No activity data for {}, continuing with partial data".format(start_date))
+        pts.write("No activity data for {}, continuing with partial data".format(start_date), debug=True)
 
     # Clean out array type data (only if the source exists)
     if sleep_data is not None:
@@ -150,8 +168,9 @@ def get_data_one_day(start_date, OURA_CLOUD_PAT):
     if activity_data is not None:
         data.update(activity_data)
 
-    # Determine the timestamp — prefer bedtime_end, fall back to activity day
-    timestamp = data.get('bedtime_end') or data.get('day') or str(start_date)
+    day_str = data.get('day') or str(start_date)
+    timestamp = data.get('bedtime_end') or f"{day_str}T12:00:00Z"
+    pts.write(f"Using timestamp {timestamp} for date {start_date}", debug=True)
 
     post_data = [{
         "measurement": "oura_measurements",
